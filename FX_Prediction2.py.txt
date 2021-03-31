@@ -1,0 +1,69 @@
+import mysql.connector as mydb
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn import linear_model            # sklearn.linear_model.LinearRegression クラスを読み込み
+import seaborn as sns
+from sklearn import datasets
+import sklearn.preprocessing as sp
+
+clf = linear_model.LinearRegression()   # 線形モデル
+
+conn = mydb.connect(
+    host='localhost',
+    port='3306',
+    user='root',
+    password='terrie.trading',
+    database='test2'
+)
+
+conn.ping(reconnect=True)                               # コネクションが切れた時に再接続してくれるよう設定
+print("\n conn.is_connected() =", conn.is_connected())  # 接続できているかどうか確認
+cur = conn.cursor()                                     # DB操作用にカーソルを作成
+
+# テーブル表示Functionの作成
+def showtable(tablename, numofrow):
+    print()
+    print("tablename = ", tablename, " : Row limit = ", numofrow)
+    cur.execute("SELECT * FROM " + tablename + " limit 0," + str(numofrow))
+    rows = cur.fetchall()
+    print(cur.column_names)
+    for row in rows:
+        print(row)
+
+print("#  ##################  ここまで宣言部 & NewUSDJPYnの読み込み ########################")
+
+n = 20              # #######　20分前のデータが１レコードに入っている前提
+MaxRecord = 1000    # #######  NewUSDJPYn から読み込むデータのレコード数
+
+sql_select="select max(DateTimeID) as DateTimeID from NewUSDJPY" + str(n)
+df = pd.read_sql(sql_select, conn)
+MaxDateTime = df['DateTimeID']
+print("MaxDateTime = ",MaxDateTime )
+
+sql_select="select min(DateTimeID) as DateTimeID from NewUSDJPY" + str(n)
+df = pd.read_sql(sql_select, conn)
+MinDateTime = df['DateTimeID']
+print("MinDateTime = ",MinDateTime )
+
+sql_select="select DateTimeID, Open"
+for i in range(n): #   現時点では分単位
+    sql_select = sql_select + ", Open_"+str(i+1)
+sql_select = sql_select + " from NewUSDJPY" + str(n) + " order by DateTimeID desc limit 0," + str(MaxRecord)
+# print(sql_select)
+df_Open = pd.read_sql(sql_select, conn ,index_col='DateTimeID')
+print(df_Open.head())
+
+sql_select="select DateTimeID, Close"
+for i in range(n): #   現時点では分単位
+    sql_select = sql_select + ", Close_"+str(i+1)
+sql_select = sql_select + " from NewUSDJPY" + str(n) + " order by DateTimeID desc limit 0," + str(MaxRecord)
+# print(sql_select)
+df_Close = pd.read_sql(sql_select, conn ,index_col='DateTimeID')
+print(df_Close.head())
+
+print("#  ##################  クローズ処理 ########################")
+cur.close()
+# cur_dic.close()
+conn.commit()
+conn.close()
