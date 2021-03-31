@@ -1,0 +1,116 @@
+import mysql.connector as mydb
+import pandas as pd
+# import datetime as dt
+from datetime import datetime as dt
+
+conn = mydb.connect(
+    host='localhost',
+    port='3306',
+    user='root',
+    password='terrie.trading',
+    database='test2'
+)
+
+conn.ping(reconnect=True)                    # コネクションが切れた時に再接続してくれるよう設定
+print("\n conn.is_connected() = ", conn.is_connected())    # 接続できているかどうか確認
+cur = conn.cursor()                          # DB操作用にカーソルを作成
+
+# テーブル表示Functionの作成
+def showtable(tablename, numofrow):
+    print()
+    print("tablename =", tablename, " : Row limit =", numofrow)
+    cur.execute("SELECT * FROM " + tablename + " limit 0," + str(numofrow))
+    rows = cur.fetchall()
+    print(cur.column_names)
+    for row in rows:
+        print(row)
+
+showtable("usdjpy_hist", 1)
+
+# 配列宣言
+DateTimeID = [] ; Date = [] ; Time = []
+Open = [] ; High = [] ; Low = [] ; Close = [] ; Volume = []
+
+cur_dic = conn.cursor(dictionary=True)                          # DB操作用にDictionary カーソルを作成
+cur_dic.execute("SELECT * FROM usdjpy_hist limit 0,50000")        # 何件のデータを使うか設定
+rows = cur_dic.fetchall()
+
+print("# ################   配列、読み込み  ###############################")
+i = 0
+for row in rows:
+    # print(row["Date"],row["Time"],row["Open"],row["High"],row["Low"],row["Close"],row["Volume"])
+
+    Date.insert(i, row["Date"])
+    Time.insert(i, row["Time"])
+    tstr = row["Date"] + " " + row["Time"] + ":00"  # yyyy.mm.dd hh:mm:ss
+    dtstr = dt.strptime(tstr, '%Y.%m.%d %H:%M:%S')
+    DateTimeID.insert(i, str(dtstr))
+
+    Open.insert(i, row["Open"])
+    High.insert(i, row["High"])
+    Low.insert(i, row["Low"])
+    Close.insert(i, row["Close"])
+    Volume.insert(i, row["Volume"])
+    i = i + 1
+
+print("# ##################  Base Table : NewUSDJPY0 の作成 ###########################")
+
+cur.execute("DROP TABLE IF EXISTS `NewUSDJPY0`")
+cur.execute("""CREATE TABLE IF NOT EXISTS `NewUSDJPY0` (
+    `DateTimeID` datetime primary key,
+     `Open`     double,
+     `High`     double,
+     `Low`      double,
+     `Close`    double,
+     `Volume`   double
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci""")
+
+seqs_DataFrame = pd.DataFrame([DateTimeID,Open,High,Low,Close,Volume])
+operation = ("INSERT INTO NewUSDJPY0 VALUES (%s,%s,%s,%s,%s,%s);")
+seqs_DataFrame = seqs_DataFrame.T
+seqs = seqs_DataFrame.values.tolist()
+cur.executemany(operation, seqs)
+showtable("NewUSDJPY0", 3)
+
+print("# ##################  n 単位前のData Table(NewUSDJPY0_n) の作成と結合(NewUSDJPYn)　###########################")
+n = 20
+for i in range(n): #   現時点では分単位
+    print("i =",i,"分前　データの結合　#############")
+    sql_drop="DROP TABLE IF EXISTS NewUSDJPY0_"+str(i+1)
+    cur.execute(sql_drop)
+
+    sql_crtbl="CREATE table NewUSDJPY0_" + str(i+1) + " " \
+              "SELECT ADDTIME(DateTimeID, '00:0" + str(i+1) + ":00') as DateTimeID_" + str(i+1) +","\
+              "Open as Open_" + str(i+1) +"," \
+              "High as High_" + str(i+1) +"," \
+              "Low  as Low_"  + str(i+1) +"," \
+              "Close as Close_" + str(i+1) +"," \
+              "Volume as Volume_" + str(i+1) +" " \
+              "from NewUSDJPY0"
+    cur.execute(sql_crtbl)
+
+    sql_drop="DROP TABLE IF EXISTS NewUSDJPY"+str(i+1)
+    cur.execute(sql_drop)
+
+    sql_crtbl="CREATE table NewUSDJPY" + str(i+1) + " " \
+              "SELECT * from NewUSDJPY" + str(i) + " " \
+              "left outer join NewUSDJPY0_" + str(i+1) + " " \
+              "on NewUSDJPY" + str(i) + ".DateTimeID = NewUSDJPY0_" + str(i+1) + ".DateTimeID_" + str(i+1)
+    cur.execute(sql_crtbl)
+
+    sql_altbl="ALTER table NewUSDJPY" + str(i+1) + " drop column DateTimeID_" + str(i+1)
+    cur.execute(sql_altbl)
+
+for i in range(n):
+    print("i =",i,"  # ############### 途中経過Table の削除 ###############")
+    sql_drop="DROP TABLE IF EXISTS NewUSDJPY0_"+str(i+1)
+    cur.execute(sql_drop)
+
+    if i < n-1 :
+        sql_drop="DROP TABLE IF EXISTS NewUSDJPY"+str(i+1)
+        cur.execute(sql_drop)
+
+cur.close()
+cur_dic.close()
+conn.commit()
+conn.close()
